@@ -1,0 +1,12 @@
+{
+  "scripts": {
+    "start:shell": "cd shell-app && npm run dev",
+    "start:auth": "cd auth-app && npm run deploy",
+    "start:patient-dashboard": "cd patient-dashboard-app && npm run deploy",
+    "start:nurse-dashboard": "cd nurse-dashboard-app && npm run deploy",
+    "start:all": "npm-run-all --parallel start:shell start:auth start:patient-dashboard start:nurse-dashboard"
+  },
+  "devDependencies": {
+    "npm-run-all": "^4.1.5"
+  }
+}
