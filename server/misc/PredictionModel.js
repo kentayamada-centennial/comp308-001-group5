@@ -1,11 +1,13 @@
 const tf = require('@tensorflow/tfjs-node');
 const fs = require('fs');
 const csvParser = require('csv-parser');
+const faker = require('@faker-js/faker');
 
-const filePath = "../data/Disease_symptom_and_patient_profile_dataset.csv"; // Path to your CSV file
+// Dataset Source: https://www.kaggle.com/datasets/uom190346a/disease-symptoms-and-patient-profile-dataset
+const filePath = "data/Disease_symptom_and_patient_profile_dataset.csv"; // Path to your CSV file
 
 // 1. Load and Parse CSV Data
-const loadCSV = async (filePath) => {
+const loadCSV = async () => {
     const rows = [];
     return new Promise((resolve, reject) => {
         fs.createReadStream(filePath)
@@ -16,17 +18,42 @@ const loadCSV = async (filePath) => {
     });
 };
 
+const generateSyntheticSamples = (minoritySamples, count) => {
+    const syntheticSamples = [];
+    for (let i = 0; i < count; i++) {
+        const randomSample = minoritySamples[Math.floor(Math.random() * minoritySamples.length)];
+        const syntheticSample = randomSample.map(value =>
+            typeof value === 'number'
+                ? value + faker.datatype.float({ min: -0.1, max: 0.1 }) // Add small noise to numerical values
+                : value // Keep categorical values unchanged
+        );
+        syntheticSamples.push(syntheticSample);
+    }
+    return syntheticSamples;
+};
+
 // 2. Preprocess Data
 const preprocessData = (data) => {
     const features = [];
     const labels = [];
+    const allDiseases = new Set();
+
     data.forEach(row => {
-        console.log(row);
-        if (row['Outcome Variable'] == 'Negative') {
-            // Skip negative cases
-            return;
-        }
+        if (row['Outcome Variable'] === 'Negative') return; // Skip negative cases
+
+        const diseases = row.Disease.split(','); // Assuming multiple diseases are comma-separated
+        diseases.forEach(d => allDiseases.add(d.trim())); // Collect all unique diseases
+    });
+
+    const uniqueLabelsArray = Array.from(allDiseases);
+
+    const classSamples = {}; // Collect samples by class
+    data.forEach(row => {
+        if (row['Outcome Variable'] === 'Negative') return; // Skip negative cases
+
         const featureRow = [];
+        const diseases = row.Disease.split(',');
+
         Object.keys(row).forEach(key => {
             switch (key) {
                 case 'Disease':
@@ -49,32 +76,59 @@ const preprocessData = (data) => {
                     else featureRow.push(0);
                     break;
                 default:
-                    // Skip other columns (Cholesterol Level)
+                    break;
             }
         });
+
         features.push(featureRow);
-        labels.push(row.Disease); // Collect the label
+
+        const labelRow = uniqueLabelsArray.map(disease =>
+            diseases.includes(disease) ? 1 : 0
+        );
+        labels.push(labelRow);
+
+        // Save feature and label for each disease
+        diseases.forEach(disease => {
+            if (!classSamples[disease]) classSamples[disease] = [];
+            classSamples[disease].push({ featureRow, labelRow });
+        });
     });
 
-    const uniqueLabels = [...new Set(labels)]; // Get unique diseases
-    const labelToIndex = uniqueLabels.reduce((acc, label, index) => {
-        acc[label] = index;
-        return acc;
-    }, {});
+    // Identify minority classes and generate synthetic samples
+    // const maxClassSize = Math.max(...Object.values(classSamples).map(samples => samples.length));
+    // Object.entries(classSamples).forEach(([disease, samples]) => {
+    //     const additionalSamples = maxClassSize - samples.length;
+    //     if (additionalSamples > 0) {
+    //         const minorityFeatures = samples.map(s => s.featureRow);
+    //         const syntheticFeatures = generateSyntheticSamples(minorityFeatures, additionalSamples);
 
-    const ys = labels.map(label => labelToIndex[label]); // Map labels to indices
+    //         // Add synthetic samples to the dataset
+    //         syntheticFeatures.forEach(featureRow => {
+    //             features.push(featureRow);
+    //             const labelRow = uniqueLabelsArray.map(d => (d === disease ? 1 : 0));
+    //             labels.push(labelRow);
+    //         });
+    //     }
+    // });
 
-    // console.log('Unique Labels:', uniqueLabels);
-    // console.log('Label to Index:', labelToIndex);
-    // console.log('Features:', features);
+    const featureTensor = tf.tensor2d(features);
+    const mean = featureTensor.mean(0);
+    const std = featureTensor.sub(mean).pow(2).mean(0).sqrt();
+
+    const normalizedFeatures = featureTensor.sub(mean).div(std);
+
+    const labelTensor = tf.tensor2d(labels, [labels.length, uniqueLabelsArray.length]);
 
     return {
-        xs: tf.tensor2d(features),
-        ys: tf.oneHot(ys, uniqueLabels.length),
-        labelToIndex,
-        uniqueLabels
+        xs: normalizedFeatures,
+        ys: labelTensor,
+        uniqueLabels: uniqueLabelsArray,
+        normalization: { mean, std },
     };
 };
+
+
+
 
 // 3. Define the Model
 const createModel = (inputShape, numClasses) => {
@@ -82,10 +136,10 @@ const createModel = (inputShape, numClasses) => {
     model.add(tf.layers.dense({ units: 128, activation: 'relu', inputShape }));
     model.add(tf.layers.dense({ units: 64, activation: 'relu' }));
     model.add(tf.layers.dense({ units: 32, activation: 'relu' }));
-    model.add(tf.layers.dense({ units: numClasses, activation: 'softmax' })); // Multi-class classification
+    model.add(tf.layers.dense({ units: numClasses, activation: 'sigmoid' })); // Multi-label output
     model.compile({
         optimizer: tf.train.adam(),
-        loss: 'categoricalCrossentropy',
+        loss: 'binaryCrossentropy', // Multi-label loss function
         metrics: ['accuracy']
     });
     return model;
@@ -106,23 +160,28 @@ const trainModel = async (model, xs, ys) => {
 // 5. Make Predictions
 
 // Predict a single disease
-const predictDisease = (model, inputFeatures, uniqueLabels) => {
-    const inputTensor = tf.tensor2d([inputFeatures]);
-    const predictions = model.predict(inputTensor);
-    const predictedIndex = predictions.argMax(-1).dataSync()[0];
-    return uniqueLabels[predictedIndex];
+const predictDisease = (model, inputFeatures, uniqueLabels, threshold = 0.5) => {
+    const inputTensor = tf.tensor2d([inputFeatures]); // Normalize input features
+    const predictions = model.predict(inputTensor).arraySync()[0]; // Get raw probabilities
+    const possibleDiseases = predictions
+        .map((prob, index) => ({ disease: uniqueLabels[index], probability: prob }))
+        .filter(disease => disease.probability >= threshold); // Only include diseases above threshold
+    return possibleDiseases;
 };
 
 // Predict top N diseases
-const predictDiseases = (model, inputFeatures, uniqueLabels, topN = 3) => {
-    const inputTensor = tf.tensor2d([inputFeatures]);
-    const predictions = model.predict(inputTensor).arraySync()[0]; // Get raw probabilities
-    const rankedDiseases = predictions
+const predictDiseases = (model, inputFeatures, uniqueLabels, normalization, threshold = 0.5) => {
+    const { mean, std } = normalization;
+    const normalizedInput = tf.tensor2d([inputFeatures]).sub(mean).div(std); // Normalize input
+    const predictions = model.predict(normalizedInput).arraySync()[0]; // Get raw probabilities
+    const possibleDiseases = predictions
         .map((prob, index) => ({ disease: uniqueLabels[index], probability: prob }))
-        .sort((a, b) => b.probability - a.probability) // Sort by probability descending
-        .slice(0, topN); // Take top N diseases
-    return rankedDiseases;
+        .filter(disease => disease.probability >= threshold) // Only include diseases above threshold
+        .sort((a, b) => b.probability - a.probability); // Sort by probability in descending order
+    return possibleDiseases;
 };
+
+
 
 module.exports = {
     loadCSV,
@@ -133,27 +192,33 @@ module.exports = {
     predictDiseases
 };
 
-// Main Function
-const main = async () => {
-    console.log('Loading CSV...');
-    const rawData = await loadCSV(filePath);
-    console.log('Preprocessing Data...');
-    const { xs, ys, labelToIndex, uniqueLabels } = preprocessData(rawData);
-    
-    console.log('Creating Model...');
-    const model = createModel([xs.shape[1]], uniqueLabels.length);
-    
-    console.log('Training Model...');
-    await trainModel(model, xs, ys);
-    
-    console.log('Making Predictions...');
-    const testInput = [1,0,1,0,90,0,1];
-    const predictedDisease = predictDisease(model, testInput, uniqueLabels);
-    console.log(`Predicted Disease: ${predictedDisease}`);
+// // Main Function
+// const main = async () => {
+//     console.log('Loading CSV...');
+//     const rawData = await loadCSV();
+//     console.log('Preprocessing Data...');
+//     const { xs, ys, uniqueLabels, normalization } = preprocessData(rawData);
 
-    const topDiseases = predictDiseases(model, testInput, uniqueLabels, 5); // Get top 5 diseases
-    console.log('Predicted Diseases and Probabilities:', topDiseases);
+//     // console.log('Class Distribution After Balancing:');
+//     // const classDistribution = labels.reduce((acc, label) => {
+//     //     label.forEach((value, index) => {
+//     //         acc[index] = (acc[index] || 0) + value;
+//     //     });
+//     //     return acc;
+//     // }, {});
+//     // console.log(classDistribution);
 
-};
+//     console.log('Creating Model...');
+//     const model = createModel([xs.shape[1]], uniqueLabels.length);
 
-main().catch(console.error);
+//     console.log('Training Model...');
+//     await trainModel(model, xs, ys);
+
+//     console.log('Making Predictions...');
+//     const testInput = [1, 1, 1, 1, 25, 0, 0]; // Example input features
+//     const predictedDiseases = predictDiseases(model, testInput, uniqueLabels, normalization, 0.02);
+//     console.log('Predicted Diseases and Probabilities:', predictedDiseases);
+// };
+
+
+// main().catch(console.error);

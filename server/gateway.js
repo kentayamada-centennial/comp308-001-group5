@@ -10,6 +10,7 @@ const gateway = new ApolloGateway({
     subgraphs: [
       { name: "auth", url: "http://localhost:3004/graphql" },
       { name: "vitalSigns", url: "http://localhost:3005/graphql" },
+      { name: "ai", url: "http://localhost:3006/graphql" },
     ],
   }),
 });
