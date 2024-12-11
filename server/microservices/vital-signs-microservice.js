@@ -23,6 +23,13 @@ const typeDefs = gql`
     timestamp: String
   }
 
+  type SymptomChecklist {
+    id: ID!
+    userId: ID!
+    symptoms: [String!]!
+    timestamp: String!
+  }
+
   type Tip {
     id: ID!
     userId: ID!
@@ -39,6 +46,7 @@ const typeDefs = gql`
 
   type Query {
     getVitalSigns(userId: ID!): [VitalSign]
+    getSymptomChecklists(userId: ID!): [SymptomChecklist]
     getTips(userId: ID!): [Tip]
     getEmergencyAlerts(userId: ID!): [EmergencyAlert]
   }
@@ -66,6 +74,9 @@ const resolvers = {
   Query: {
     getVitalSigns: async (_, { userId }) => {
       return await VitalSign.find({ userId }).sort({ timestamp: -1 });
+    },
+    getSymptomChecklists: async (_, { userId }) => {
+      return await SymptomChecklist.find({ userId }).sort({ timestamp: -1 });
     },
     getTips: async (_, { userId }) => {
       return await Tip.find({ userId }).sort({ timestamp: -1 });

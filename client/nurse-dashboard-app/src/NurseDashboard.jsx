@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useQuery, useMutation, gql } from '@apollo/client';
+import { useQuery, useMutation, gql, useLazyQuery } from '@apollo/client';
 import {
   Box,
   Button,
@@ -69,10 +69,29 @@ const ADD_VITAL_SIGN = gql`
   }
 `;
 
+const GET_SYMPTOMS_CHECKLISTS = gql`
+  query GetSymptomsChecklists($userId: ID!) {
+    getSymptomChecklists(userId: $userId) {
+      id
+      symptoms
+      timestamp
+    }
+  }
+`;
+
 const GET_NURSE_INFO = gql`
   query GetNurseInfo($id: ID!) {
     getPatientInfo(id: $id) {
       username
+    }
+  }
+`;
+
+const PREDICT_CONDITION = gql`
+  query PredictCondition($features: PredictFeatures) {
+    predictCondition(features: $features) {
+      disease
+      probability
     }
   }
 `;
@@ -91,11 +110,25 @@ const NurseDashboard = () => {
     variables: { userId: selectedPatientId },
     skip: !selectedPatientId,
   });
+  const { data: symptomsData, loading: symptomsLoading, error: symptomsError } = useQuery(GET_SYMPTOMS_CHECKLISTS, {
+    variables: { userId: selectedPatientId },
+    skip: !selectedPatientId,
+  });
   const [addVitalSign] = useMutation(ADD_VITAL_SIGN);
   const { data: nurseData, loading: nurseLoading, error: nurseError } = useQuery(GET_NURSE_INFO, {
     variables: { id: userId },
     skip: !userId,
   });
+  const [ predictionFeatures, setPredictionFeatures ] = useState({
+    fever: true,
+    cough: false,
+    fatigue: true,
+    difficultyBreathing: false,
+    age: 25,
+    gender: 'Male',
+    bloodPressure: 120,
+  });
+  const [predictCondition, { loading: predictionLoading, error: predictionError, data: predictionData }] = useLazyQuery(PREDICT_CONDITION);
 
   useEffect(() => {
     const storedUserId = localStorage.getItem('userId');
@@ -147,6 +180,45 @@ const NurseDashboard = () => {
     setRespiratoryRate('');
     alert('Vital Signs Added!');
   };
+
+  const handlePrediction = async () => {
+    await predictCondition({ 
+      variables: {
+        features: predictionFeatures
+      },
+      skip: !selectedPatientId,
+    });
+    console.log("Prediction Features: ", predictionFeatures);
+  }
+  useEffect(() => {
+    if (predictionData) {
+      console.log("Prediction: ", predictionData);
+    }
+  }, [predictionData]);
+  useEffect(() => {
+    let row = vitalsData?.getVitalSigns?.[0];
+    if (row) {
+      console.log("Latest Vitals: ", row);
+      setPredictionFeatures({
+        ...predictionFeatures,
+        bloodPressure: parseInt(row.bloodPressure),
+      })
+    }
+  }, [vitalsData]);
+  useEffect(() => {
+    let row = symptomsData?.getSymptomChecklists?.[0];
+    if (row) {
+      console.log("Latest Symptoms: ", row);
+      let symptoms = row.symptoms;
+      setPredictionFeatures({
+        ...predictionFeatures,
+        fever: symptoms.includes('Fever'),
+        cough: symptoms.includes('Cough'),
+        fatigue: symptoms.includes('Fatigue'),
+        difficultyBreathing: symptoms.includes('Shortness of Breath'),
+      })
+    }
+  }, [symptomsData]);
 
   return (
     <Container maxWidth="lg">
@@ -214,6 +286,76 @@ const NurseDashboard = () => {
               </Table>
             </TableContainer>
           )}
+        </Box>
+      )}
+      {selectedPatientId && (
+        <Box mt={4}>
+          <Typography variant="h6">Patient Symptoms</Typography>
+          {symptomsLoading ? (
+            <CircularProgress />
+          ) : symptomsError ? (
+            <Alert severity="error">{symptomsError.message}</Alert>
+          ) : (
+            <TableContainer component={Paper}>
+              <Table>
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Symptoms</TableCell>
+                    <TableCell>Timestamp</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {symptomsData?.getSymptomChecklists?.map((symptoms) => (
+                    <TableRow key={symptoms.id}>
+                      <TableCell>{symptoms.symptoms.join(', ')}</TableCell>
+                      <TableCell>
+                        {new Date(parseInt(symptoms.timestamp)).toLocaleString()}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          )}
+        </Box>
+      )}
+      {selectedPatientId && (
+        <Box mt={4}>
+          <Typography variant="h6">Predict Condition</Typography>
+          <TextField
+            label="Age"
+            value={predictionFeatures.age}
+            onChange={(e) => setPredictionFeatures({ ...predictionFeatures, age: parseInt(e.target.value) })}
+            fullWidth
+            margin="normal"
+          />
+          <Button onClick={handlePrediction} variant="contained" color="primary">
+            Predict
+          </Button>
+          {predictionLoading ? (
+            <CircularProgress />
+          ) : predictionError ? (
+            <Alert severity="error">{predictionError.message}</Alert>
+          ) : (predictionData ? (
+            <TableContainer component={Paper}>
+              <Table>
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Disease</TableCell>
+                    <TableCell>Probability</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {predictionData?.predictCondition?.map((condition) => (
+                    <TableRow key={condition.id}>
+                      <TableCell>{condition.disease}</TableCell>
+                      <TableCell>{(condition.probability * 100).toFixed(1)}%</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          ) : null)}
         </Box>
       )}
       {selectedPatientId && (
