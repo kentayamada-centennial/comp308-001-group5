@@ -1,17 +1,19 @@
 {
-"scripts": {
-  "sleep5s": "node -e \"setTimeout(() => process.exit(0), 5000)\"",
-  "start:auth": "node microservices/auth-microservice.js",
-  "start:vitalSigns": "node microservices/vital-signs-microservice.js",
-  "start:gateway": "npm run sleep5s && node gateway.js",
-  "start:all": "concurrently -k -n \"AUTH,VITALS,GATEWAY\" -c \"green,blue,magenta\" \"npm run start:auth\" \"npm run start:vitalSigns\" \"npm run start:gateway\""
-},
+  "scripts": {
+    "sleep5s": "node -e \"setTimeout(() => process.exit(0), 5000)\"",
+    "start:auth": "node microservices/auth-microservice.js",
+    "start:vitalSigns": "node microservices/vital-signs-microservice.js",
+    "start:gateway": "npm run sleep5s && node gateway.js",
+    "start:all": "concurrently -k -n \"AUTH,VITALS,GATEWAY\" -c \"green,blue,magenta\" \"npm run start:auth\" \"npm run start:vitalSigns\" \"npm run start:gateway\""
+  },
   "dependencies": {
     "@apollo/federation": "^0.38.1",
     "@apollo/gateway": "^2.9.3",
+    "@tensorflow/tfjs-node": "^4.22.0",
     "apollo-server-express": "^3.13.0",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
+    "csv-parser": "^3.0.0",
     "express": "^4.21.1",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.8.1"
