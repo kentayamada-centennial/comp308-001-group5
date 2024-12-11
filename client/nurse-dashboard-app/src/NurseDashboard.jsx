@@ -17,6 +17,9 @@ import {
   TableCell,
   TableBody,
   Paper,
+  FormControlLabel,
+  RadioGroup,
+  Radio,
 } from '@mui/material';
 
 const GET_PATIENTS = gql`
@@ -329,6 +332,17 @@ const NurseDashboard = () => {
             fullWidth
             margin="normal"
           />
+          <Box mt={2}>
+            <Typography variant="h6">Gender</Typography>
+            <RadioGroup
+              row
+              value={predictionFeatures.gender}
+              onChange={(e) => setPredictionFeatures({ ...predictionFeatures, gender: e.target.value })}
+            >
+              <FormControlLabel value="Male" control={<Radio />} label="Male" />
+              <FormControlLabel value="Female" control={<Radio />} label="Female" />
+            </RadioGroup>
+          </Box>
           <Button onClick={handlePrediction} variant="contained" color="primary">
             Predict
           </Button>
