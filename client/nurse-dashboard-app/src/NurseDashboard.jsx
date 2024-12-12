@@ -243,7 +243,7 @@ const NurseDashboard = () => {
             onChange={(e) => setSelectedPatientId(e.target.value)}
             fullWidth
           >
-            <MenuItem value="" disabled>
+            <MenuItem key="default" value="" disabled>
               Select a Patient
             </MenuItem>
             {patientsData.getPatients.map((patient) => (
@@ -339,8 +339,8 @@ const NurseDashboard = () => {
               value={predictionFeatures.gender}
               onChange={(e) => setPredictionFeatures({ ...predictionFeatures, gender: e.target.value })}
             >
-              <FormControlLabel value="Male" control={<Radio />} label="Male" />
-              <FormControlLabel value="Female" control={<Radio />} label="Female" />
+              <FormControlLabel key="male" value="Male" control={<Radio />} label="Male" />
+              <FormControlLabel key="female" value="Female" control={<Radio />} label="Female" />
             </RadioGroup>
           </Box>
           <Button onClick={handlePrediction} variant="contained" color="primary">
